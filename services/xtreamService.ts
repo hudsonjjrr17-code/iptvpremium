@@ -2,130 +2,157 @@
 import { Channel, XtreamAccount } from '../types';
 
 /**
- * Função de busca inteligente com tratamento de CORS e erros de rede.
+ * Tenta buscar dados usando uma malha de proxies para contornar bloqueios e CORS.
  */
-const smartFetch = async (url: string) => {
+const extremeFetch = async (url: string) => {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 segundos de timeout
+  const timeoutId = setTimeout(() => controller.abort(), 25000);
+
+  const proxies = [
+    (u: string) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}&timestamp=${Date.now()}`,
+    (u: string) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+    (u: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`
+  ];
 
   try {
-    // Tentativa 1: Direta (Mais rápida, mas sujeita a CORS)
-    const response = await fetch(url, { signal: controller.signal });
+    const directResponse = await fetch(url, { signal: controller.signal });
+    if (directResponse.ok) {
+      clearTimeout(timeoutId);
+      return await directResponse.json();
+    }
+  } catch (e) {
+    console.warn("Conexão direta indisponível. Iniciando malha de proxies...");
+  } finally {
     clearTimeout(timeoutId);
-    if (response.ok) return response;
-    throw new Error(`Server returned ${response.status}`);
-  } catch (error: any) {
-    clearTimeout(timeoutId);
-    
-    // Tentativa 2: Via Proxy (Lenta, mas contorna CORS e Mixed Content)
-    console.warn(`Tentativa direta falhou para ${url}. Usando túnel de segurança...`);
-    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
-    
-    const proxyResponse = await fetch(proxyUrl);
-    if (proxyResponse.ok) return proxyResponse;
-    
-    throw new Error("O servidor IPTV não respondeu ou bloqueou a conexão externa.");
   }
+
+  for (const getProxyUrl of proxies) {
+    try {
+      const pUrl = getProxyUrl(url);
+      const res = await fetch(pUrl);
+      if (!res.ok) continue;
+
+      const data = await res.json();
+      if (data && typeof data === 'object' && 'contents' in data) {
+        if (!data.contents) continue;
+        return JSON.parse(data.contents);
+      }
+      if (data) return data;
+    } catch (err) {
+      console.warn(`Falha no proxy`);
+    }
+  }
+  
+  throw new Error("O servidor não respondeu. Verifique seus dados ou se o servidor está online.");
+};
+
+/**
+ * Transforma os dados brutos do Xtream em objetos Channel de forma performática.
+ * Processa em pequenos pedaços para não travar a thread principal se a lista for gigantesca.
+ */
+const processInChunks = async (
+  items: any[], 
+  type: 'live' | 'movie' | 'series', 
+  baseUrl: string, 
+  auth: { u: string, p: string },
+  label: string
+): Promise<Channel[]> => {
+  const result: Channel[] = [];
+  const len = items.length;
+  const chunkSize = 2000; // Processa 2000 itens por vez para manter a UI responsiva
+
+  for (let i = 0; i < len; i += chunkSize) {
+    const chunk = items.slice(i, i + chunkSize);
+    
+    // Processamento rápido do pedaço
+    for (let j = 0; j < chunk.length; j++) {
+      const item = chunk[j];
+      const streamId = item.stream_id || item.series_id;
+      if (!streamId) continue;
+
+      let streamUrl = '';
+      if (type === 'live') {
+        streamUrl = `${baseUrl}/live/${auth.u}/${auth.p}/${streamId}.m3u8`;
+      } else if (type === 'movie') {
+        streamUrl = `${baseUrl}/movie/${auth.u}/${auth.p}/${streamId}.${item.container_extension || 'mp4'}`;
+      } else {
+        streamUrl = `${baseUrl}/series/${auth.u}/${auth.p}/${streamId}.mp4`; 
+      }
+
+      result.push({
+        id: `${type}-${streamId}`,
+        name: item.name || 'Sem nome',
+        logo: item.stream_icon || item.cover || '',
+        category: item.category_name || label,
+        url: streamUrl,
+        isFavorite: false,
+        description: `Streaming Premium - ${label}`,
+        streamId: String(streamId),
+        type: type
+      });
+    }
+
+    // Pequena pausa para permitir que o navegador processe eventos de UI
+    if (i + chunkSize < len) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+  }
+  return result;
 };
 
 export const fetchXtreamData = async (account: XtreamAccount): Promise<Channel[]> => {
-  const { url, username, password } = account;
+  let { url, username, password } = account;
+  
+  url = url.trim();
+  if (!url.startsWith('http')) url = 'http://' + url;
   const baseUrl = url.endsWith('/') ? url.slice(0, -1) : url;
+  
   const authParams = `username=${username}&password=${password}`;
   const apiUrl = `${baseUrl}/player_api.php?${authParams}`;
 
   try {
-    // 1. Validar Conexão e Autenticação
-    const authRes = await smartFetch(apiUrl);
-    const authData = await authRes.json();
-
-    if (!authData.user_info || authData.user_info.auth === 0) {
-      throw new Error('Usuário ou senha inválidos no servidor informado.');
+    const authData = await extremeFetch(apiUrl);
+    
+    if (!authData || (authData.user_info && authData.user_info.auth === 0)) {
+      throw new Error('Credenciais recusadas pelo servidor.');
     }
 
-    // 2. Buscar em paralelo para otimizar tempo (Live, VOD e Séries)
-    const [liveRes, vodRes, seriesRes] = await Promise.all([
-      smartFetch(`${apiUrl}&action=get_live_streams`),
-      smartFetch(`${apiUrl}&action=get_vod_streams`),
-      smartFetch(`${apiUrl}&action=get_series`)
-    ]);
+    const endpoints = [
+      { action: 'get_live_streams', type: 'live' as const, label: 'Canais' },
+      { action: 'get_vod_streams', type: 'movie' as const, label: 'Filmes' },
+      { action: 'get_series', type: 'series' as const, label: 'Séries' }
+    ];
 
-    const [liveData, vodData, seriesData] = await Promise.all([
-      liveRes.json(),
-      vodRes.json(),
-      seriesRes.json()
-    ]);
+    // Busca os dados (I/O) em paralelo
+    const fetchPromises = endpoints.map(ep => extremeFetch(`${apiUrl}&action=${ep.action}`));
+    const rawDataResults = await Promise.allSettled(fetchPromises);
 
-    const allChannels: Channel[] = [];
+    let allChannels: Channel[] = [];
 
-    // Processar Canais Ao Vivo
-    if (Array.isArray(liveData)) {
-      liveData.forEach((item: any) => {
-        allChannels.push({
-          id: `live-${item.stream_id}`,
-          name: item.name || 'Canal Sem Nome',
-          logo: item.stream_icon || '',
-          category: item.category_name || 'TV ao Vivo',
-          url: `${baseUrl}/live/${username}/${password}/${item.stream_id}.m3u8`,
-          isFavorite: false,
-          description: `Qualidade: HD/FHD`,
-          streamId: item.stream_id,
-          type: 'live'
-        });
-      });
-    }
-
-    // Processar Filmes
-    if (Array.isArray(vodData)) {
-      vodData.forEach((item: any) => {
-        allChannels.push({
-          id: `vod-${item.stream_id}`,
-          name: item.name || 'Filme',
-          logo: item.stream_icon || '',
-          category: 'Filmes',
-          url: `${baseUrl}/movie/${username}/${password}/${item.stream_id}.${item.container_extension || 'mp4'}`,
-          isFavorite: false,
-          description: `VOD Premium`,
-          streamId: item.stream_id,
-          type: 'movie'
-        });
-      });
-    }
-
-    // Processar Séries
-    if (Array.isArray(seriesData)) {
-      seriesData.forEach((item: any) => {
-        allChannels.push({
-          id: `series-${item.series_id}`,
-          name: item.name || 'Série',
-          logo: item.cover || item.stream_icon || '',
-          category: 'Séries',
-          url: `${apiUrl}&action=get_series_info&series_id=${item.series_id}`, // URL para info da série
-          isFavorite: false,
-          description: `Série Completa`,
-          streamId: item.series_id,
-          type: 'series'
-        });
-      });
+    // Processa cada categoria de forma otimizada
+    for (let i = 0; i < rawDataResults.length; i++) {
+      const result = rawDataResults[i];
+      if (result.status === 'fulfilled' && Array.isArray(result.value)) {
+        const ep = endpoints[i];
+        const processed = await processInChunks(
+          result.value, 
+          ep.type, 
+          baseUrl, 
+          { u: username, p: password },
+          ep.label
+        );
+        allChannels = allChannels.concat(processed);
+      }
     }
 
     if (allChannels.length === 0) {
-      throw new Error('A conta foi validada, mas a lista de conteúdos retornou vazia.');
+      throw new Error('O painel conectou, mas nenhum conteúdo foi encontrado.');
     }
 
-    return allChannels;
+    // Ordenação rápida: apenas move quem tem logo para o topo, sem overhead excessivo
+    return allChannels.sort((a, b) => (b.logo ? 1 : -1));
 
   } catch (error: any) {
-    console.error('Erro Crítico no Serviço Xtream:', error);
-    
-    if (error.name === 'AbortError') {
-      throw new Error('Tempo esgotado: O servidor demorou demais para responder.');
-    }
-    
-    if (error.message.includes('Failed to fetch') || error.message.includes('status: 0')) {
-      throw new Error('Falha de Rede: O servidor IPTV é inseguro (HTTP) ou bloqueia conexões via navegador. Tente outro Host.');
-    }
-
-    throw error;
+    throw new Error(error.message || "Erro de conexão com o servidor.");
   }
 };

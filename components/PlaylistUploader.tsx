@@ -1,7 +1,6 @@
 
 import React, { useState } from 'react';
-import { Link as LinkIcon, CheckCircle2, AlertCircle, Server, User, Lock, Globe, ShieldCheck, Zap, Loader2 } from 'lucide-react';
-import { parseM3UWithAI } from '../services/geminiService';
+import { CheckCircle2, AlertCircle, Server, User, Lock, Globe, ShieldCheck, Zap, Loader2, Star } from 'lucide-react';
 import { fetchXtreamData } from '../services/xtreamService';
 import { Channel } from '../types';
 
@@ -10,57 +9,32 @@ interface PlaylistUploaderProps {
 }
 
 const QUICK_HOSTS = [
-  { label: 'MW Play', url: 'http://mwplay.top' },
-  { label: 'MT Cloud', url: 'http://mtcloud.cloud' }
+  { label: 'SERVIDOR 1', url: 'http://mwplay.top' },
+  { label: 'SERVIDOR 2', url: 'http://mtcloud.cloud' }
 ];
 
 const PlaylistUploader: React.FC<PlaylistUploaderProps> = ({ onImport }) => {
-  const [activeTab, setActiveTab] = useState<'m3u' | 'xtream'>('xtream');
-  const [m3uUrl, setM3uUrl] = useState('');
   const [xtream, setXtream] = useState({ url: '', username: '', password: '' });
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<{ type: 'idle' | 'success' | 'error', message?: string }>({ type: 'idle' });
 
-  const handleM3uImport = async () => {
-    if (!m3uUrl) return;
-    setLoading(true);
-    setStatus({ type: 'idle' });
-    try {
-        const mockM3u = `#EXTM3U\n#EXTINF:-1 group-title="Canais",Canal Exemplo\nhttp://example.com/stream`;
-        const channels = await parseM3UWithAI(mockM3u);
-        const hydrated = channels.map((c: any, i: number) => ({
-            ...c, id: `m3u-${Date.now()}-${i}`, isFavorite: false, description: 'Importado via M3U'
-        }));
-        onImport(hydrated);
-        setStatus({ type: 'success', message: 'Lista M3U carregada com sucesso!' });
-    } catch (err: any) {
-        setStatus({ type: 'error', message: 'Erro ao processar arquivo M3U. Verifique o link.' });
-    } finally {
-        setLoading(false);
-    }
-  };
-
-  const handleXtreamImport = async () => {
+  const handleMasterLogin = async () => {
     if (!xtream.url || !xtream.username || !xtream.password) {
-        setStatus({ type: 'error', message: 'Preencha todos os campos da conta.' });
+        setStatus({ type: 'error', message: 'Preencha todos os campos da sua conta premium.' });
         return;
     }
     
-    let formattedUrl = xtream.url.trim();
-    if (!formattedUrl.startsWith('http')) {
-      formattedUrl = 'http://' + formattedUrl;
-    }
-
     setLoading(true);
-    setStatus({ type: 'idle' });
+    setStatus({ type: 'idle', message: 'Autenticando no servidor de mídia...' });
+    
     try {
-        const channels = await fetchXtreamData({ ...xtream, url: formattedUrl });
+        const channels = await fetchXtreamData(xtream);
         onImport(channels);
-        setStatus({ type: 'success', message: `Sucesso! ${channels.length} itens sincronizados.` });
+        setStatus({ type: 'success', message: `Acesso Liberado! ${channels.length} conteúdos prontos.` });
     } catch (err: any) {
         setStatus({ 
           type: 'error', 
-          message: err.message || 'Falha na conexão com o servidor.' 
+          message: err.message || 'Falha ao conectar ao servidor.' 
         });
     } finally {
         setLoading(false);
@@ -74,46 +48,30 @@ const PlaylistUploader: React.FC<PlaylistUploaderProps> = ({ onImport }) => {
         
         <div className="flex flex-col items-center mb-10">
           <div className="w-24 h-24 bg-red-600 rounded-[2rem] flex items-center justify-center mb-6 shadow-2xl shadow-red-600/30 transform -rotate-3 hover:rotate-0 transition-transform duration-500">
-            <span className="text-white font-black text-4xl italic tracking-tighter">P+</span>
+            <Star className="text-white" size={40} fill="white" />
           </div>
-          <h1 className="text-4xl font-black text-white tracking-tighter uppercase mb-2">
+          <h1 className="text-4xl font-black text-white tracking-tighter uppercase mb-2 text-center">
             IPTV <span className="text-red-600">PLUS</span>
           </h1>
-          <p className="text-zinc-600 font-bold uppercase text-[10px] tracking-[0.4em]">Plataforma de Elite</p>
-        </div>
-
-        <div className="flex p-1.5 bg-black rounded-2xl border border-zinc-900 mb-8">
-          <button 
-            onClick={() => setActiveTab('xtream')}
-            className={`flex-1 flex items-center justify-center gap-2 py-3.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'xtream' ? 'bg-red-600 text-white shadow-xl shadow-red-600/20' : 'text-zinc-600 hover:text-zinc-400'}`}
-          >
-            Xtream Codes
-          </button>
-          <button 
-            onClick={() => setActiveTab('m3u')}
-            className={`flex-1 flex items-center justify-center gap-2 py-3.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'm3u' ? 'bg-red-600 text-white shadow-xl shadow-red-600/20' : 'text-zinc-600 hover:text-zinc-400'}`}
-          >
-            M3U URL
-          </button>
+          <p className="text-zinc-600 font-bold uppercase text-[10px] tracking-[0.4em]">Acesso Premium</p>
         </div>
 
         <div className="space-y-6">
-          {activeTab === 'xtream' ? (
             <div className="space-y-4">
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] ml-1">Servidores Rápidos</label>
-                <div className="flex gap-2">
+                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] ml-1">Seleção de Servidor</label>
+                <div className="grid grid-cols-2 gap-2">
                   {QUICK_HOSTS.map((host) => (
                     <button
                       key={host.url}
                       onClick={() => setXtream(prev => ({ ...prev, url: host.url }))}
-                      className={`flex-1 py-3 px-4 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all flex items-center justify-center gap-2 ${
-                        xtream.url === host.url 
-                        ? 'bg-red-600/10 border-red-600 text-red-500' 
-                        : 'bg-black border-zinc-900 text-zinc-500 hover:border-zinc-700 hover:text-zinc-300'
+                      className={`py-4 px-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all flex items-center justify-center gap-2 ${
+                        xtream.url.includes(host.url.replace('http://', ''))
+                        ? 'bg-red-600 border-red-600 text-white shadow-lg' 
+                        : 'bg-black border-zinc-900 text-zinc-500 hover:border-zinc-700'
                       }`}
                     >
-                      <Zap size={12} className={xtream.url === host.url ? 'fill-current' : ''} />
+                      <Zap size={12} className={xtream.url.includes(host.url) ? 'fill-current' : ''} />
                       {host.label}
                     </button>
                   ))}
@@ -121,18 +79,19 @@ const PlaylistUploader: React.FC<PlaylistUploaderProps> = ({ onImport }) => {
               </div>
 
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] ml-1">Host / URL Servidor</label>
+                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] ml-1">URL do Host</label>
                 <div className="relative">
                   <Globe className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-600" size={18} />
                   <input 
                     type="text"
-                    placeholder="http://seu-host.com:8080"
+                    placeholder="ex: host.com:8080"
                     value={xtream.url}
                     onChange={(e) => setXtream({...xtream, url: e.target.value})}
                     className="w-full bg-black border border-zinc-900 rounded-2xl py-4 pl-12 pr-4 text-white focus:outline-none focus:border-red-600 transition-all font-medium"
                   />
                 </div>
               </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] ml-1">Usuário</label>
@@ -153,7 +112,7 @@ const PlaylistUploader: React.FC<PlaylistUploaderProps> = ({ onImport }) => {
                     <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-600" size={18} />
                     <input 
                       type="password"
-                      placeholder="••••••••"
+                      placeholder="Password"
                       value={xtream.password}
                       onChange={(e) => setXtream({...xtream, password: e.target.value})}
                       className="w-full bg-black border border-zinc-900 rounded-2xl py-4 pl-12 pr-4 text-white focus:outline-none focus:border-red-600 transition-all font-medium"
@@ -161,38 +120,20 @@ const PlaylistUploader: React.FC<PlaylistUploaderProps> = ({ onImport }) => {
                   </div>
                 </div>
               </div>
+
               <button 
-                onClick={handleXtreamImport}
+                onClick={handleMasterLogin}
                 disabled={loading}
                 className="w-full bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-black py-5 rounded-[1.5rem] transition-all shadow-xl shadow-red-600/10 flex items-center justify-center gap-3 mt-6 text-sm uppercase tracking-widest"
               >
-                {loading ? <Loader2 className="animate-spin" size={20} /> : 'ENTRAR NO ACERVO'}
+                {loading ? (
+                  <>
+                    <Loader2 className="animate-spin" size={20} />
+                    CONECTANDO AO SERVIDOR...
+                  </>
+                ) : 'ACESSAR AGORA'}
               </button>
             </div>
-          ) : (
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] ml-1">URL M3U8 / M3U</label>
-                <div className="relative">
-                  <LinkIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-600" size={18} />
-                  <input 
-                    type="text"
-                    placeholder="https://provedor.com/lista.m3u"
-                    value={m3uUrl}
-                    onChange={(e) => setM3uUrl(e.target.value)}
-                    className="w-full bg-black border border-zinc-900 rounded-2xl py-4 pl-12 pr-4 text-white focus:outline-none focus:border-red-600 transition-all font-medium"
-                  />
-                </div>
-              </div>
-              <button 
-                onClick={handleM3uImport}
-                disabled={loading}
-                className="w-full bg-white text-black hover:bg-zinc-200 disabled:opacity-50 font-black py-5 rounded-[1.5rem] transition-all flex items-center justify-center gap-3 mt-6 text-sm uppercase tracking-widest"
-              >
-                {loading ? <Loader2 className="animate-spin" size={20} /> : 'IMPORTAR LISTA M3U'}
-              </button>
-            </div>
-          )}
 
           {status.type !== 'idle' && (
             <div className={`flex items-start gap-4 p-5 border rounded-2xl animate-in fade-in slide-in-from-top-4 duration-300 ${status.type === 'success' ? 'bg-green-600/10 border-green-600/20 text-green-400' : 'bg-red-600/10 border-red-600/20 text-red-500'}`}>
@@ -201,7 +142,7 @@ const PlaylistUploader: React.FC<PlaylistUploaderProps> = ({ onImport }) => {
                   <span className="text-xs font-bold leading-relaxed">{status.message}</span>
                   {status.type === 'error' && (
                     <span className="text-[10px] opacity-70 italic font-medium">
-                      Dica: Verifique se o host está correto ou se o servidor requer VPN.
+                      Dica: Verifique se sua conta não expirou ou se o servidor está em manutenção.
                     </span>
                   )}
                 </div>
@@ -211,12 +152,12 @@ const PlaylistUploader: React.FC<PlaylistUploaderProps> = ({ onImport }) => {
 
         <div className="mt-12 flex items-center justify-center gap-3 text-zinc-700">
             <ShieldCheck size={16} />
-            <span className="text-[10px] font-black uppercase tracking-[0.2em]">Conexão Segura Criptografada</span>
+            <span className="text-[10px] font-black uppercase tracking-[0.2em]">Conexão Segura e Criptografada</span>
         </div>
       </div>
       
       <p className="text-center mt-8 text-zinc-600 font-bold text-[10px] uppercase tracking-[0.3em]">
-        IPTV PLUS PREMIUM v3.1.2
+        IPTV PLUS PREMIUM v4.2.0
       </p>
     </div>
   );
