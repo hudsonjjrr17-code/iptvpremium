@@ -1,0 +1,9 @@
+
+{
+  "name": "IPTV Plus - Streaming Profissional",
+  "description": "Plataforma premium de streaming IPTV com organização inteligente via IA, suporte a Xtream Codes e interface cinematográfica.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
