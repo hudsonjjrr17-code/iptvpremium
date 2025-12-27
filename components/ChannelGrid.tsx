@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Channel } from '../types';
-import { Play, Heart, Star, Plus } from 'lucide-react';
+import { Play, Heart, Plus, Film } from 'lucide-react';
 
 interface ChannelGridProps {
   channels: Channel[];
@@ -10,7 +10,7 @@ interface ChannelGridProps {
   title: string;
 }
 
-const ITEMS_PER_PAGE = 40;
+const ITEMS_PER_PAGE = 30;
 
 const ChannelGrid: React.FC<ChannelGridProps> = ({ channels, onChannelSelect, onToggleFavorite, title }) => {
   const [visibleCount, setVisibleCount] = useState(ITEMS_PER_PAGE);
@@ -30,7 +30,7 @@ const ChannelGrid: React.FC<ChannelGridProps> = ({ channels, onChannelSelect, on
       <div className="flex items-end justify-between border-l-4 border-red-600 pl-4">
         <div>
           <h2 className="text-3xl font-black text-white tracking-tighter uppercase">{title}</h2>
-          <p className="text-zinc-500 text-xs font-bold uppercase tracking-widest mt-1">Acervo Premium Organizado</p>
+          <p className="text-zinc-500 text-xs font-bold uppercase tracking-widest mt-1">Acervo Premium</p>
         </div>
         <span className="text-zinc-600 text-sm font-black">{channels.length} ITENS</span>
       </div>
@@ -42,12 +42,22 @@ const ChannelGrid: React.FC<ChannelGridProps> = ({ channels, onChannelSelect, on
             className="group relative bg-zinc-950 border border-zinc-900 rounded-[1.5rem] md:rounded-[2rem] overflow-hidden transition-all duration-300 hover:border-red-600/50 hover:shadow-2xl hover:shadow-red-600/10"
           >
             <div className="aspect-[3/4] relative overflow-hidden bg-zinc-900">
-              <img 
-                src={channel.logo || `https://picsum.photos/seed/${channel.id}/300/400`} 
-                alt={channel.name}
-                loading="lazy"
-                className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-              />
+              {channel.logo ? (
+                <img 
+                  src={channel.logo} 
+                  alt={channel.name}
+                  loading="lazy"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = `https://images.unsplash.com/photo-1594909122845-11baa439b7bf?q=80&w=300&h=400&auto=format&fit=crop`;
+                  }}
+                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                />
+              ) : (
+                <div className="w-full h-full flex flex-col items-center justify-center bg-zinc-900 text-zinc-700">
+                  <Film size={48} />
+                </div>
+              )}
+              
               <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent opacity-80" />
               
               <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-center justify-center backdrop-blur-[2px]">
@@ -90,7 +100,7 @@ const ChannelGrid: React.FC<ChannelGridProps> = ({ channels, onChannelSelect, on
             onClick={() => setVisibleCount(prev => prev + ITEMS_PER_PAGE)}
             className="flex items-center gap-3 px-10 py-5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-2xl text-white font-black text-xs uppercase tracking-[0.2em] transition-all"
           >
-            <Plus size={18} /> Carregar Mais Conteúdos
+            <Plus size={18} /> Carregar Mais
           </button>
         </div>
       )}

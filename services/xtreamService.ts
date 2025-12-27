@@ -1,16 +1,19 @@
 
-import { Channel, XtreamAccount } from '../types';
+import { Channel, XtreamAccount, Season, Episode } from '../types';
 
-/**
- * Tenta buscar dados usando uma malha de proxies para contornar bloqueios e CORS.
- */
+let dataCache: Record<string, Channel[]> = {};
+
+export const clearCache = () => {
+  dataCache = {};
+};
+
 const extremeFetch = async (url: string) => {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 25000);
+  const timeoutId = setTimeout(() => controller.abort(), 20000);
 
   const proxies = [
-    (u: string) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}&timestamp=${Date.now()}`,
     (u: string) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+    (u: string) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}&timestamp=${Date.now()}`,
     (u: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`
   ];
 
@@ -21,138 +24,113 @@ const extremeFetch = async (url: string) => {
       return await directResponse.json();
     }
   } catch (e) {
-    console.warn("Conexão direta indisponível. Iniciando malha de proxies...");
+    console.warn("CORS/Direto bloqueado, tentando proxies...");
   } finally {
     clearTimeout(timeoutId);
   }
 
   for (const getProxyUrl of proxies) {
     try {
-      const pUrl = getProxyUrl(url);
-      const res = await fetch(pUrl);
+      const res = await fetch(getProxyUrl(url));
       if (!res.ok) continue;
-
       const data = await res.json();
+      let parsedData = data;
       if (data && typeof data === 'object' && 'contents' in data) {
-        if (!data.contents) continue;
-        return JSON.parse(data.contents);
+        parsedData = data.contents ? JSON.parse(data.contents) : null;
       }
-      if (data) return data;
+      if (parsedData) return parsedData;
     } catch (err) {
-      console.warn(`Falha no proxy`);
+      continue;
     }
   }
-  
-  throw new Error("O servidor não respondeu. Verifique seus dados ou se o servidor está online.");
+  return null;
 };
 
-/**
- * Transforma os dados brutos do Xtream em objetos Channel de forma performática.
- * Processa em pequenos pedaços para não travar a thread principal se a lista for gigantesca.
- */
-const processInChunks = async (
-  items: any[], 
-  type: 'live' | 'movie' | 'series', 
-  baseUrl: string, 
-  auth: { u: string, p: string },
+export const authenticateXtream = async (account: XtreamAccount) => {
+  const baseUrl = account.url.trim().replace(/\/$/, "");
+  const apiUrl = `${baseUrl}/player_api.php?username=${account.username}&password=${account.password}`;
+  const data = await extremeFetch(apiUrl);
+  if (!data || (data.user_info && data.user_info.auth === 0)) {
+    throw new Error('Credenciais inválidas ou servidor offline.');
+  }
+  return data;
+};
+
+export const fetchSeriesInfo = async (account: XtreamAccount, seriesId: string): Promise<Season[]> => {
+  const baseUrl = account.url.trim().replace(/\/$/, "");
+  // seriesId vem no formato "series-123", pegamos apenas o número
+  const id = seriesId.split('-')[1] || seriesId;
+  const apiUrl = `${baseUrl}/player_api.php?username=${account.username}&password=${account.password}&action=get_series_info&series_id=${id}`;
+  
+  const data = await extremeFetch(apiUrl);
+  if (!data || !data.episodes) return [];
+
+  const seasonsMap: Record<number, Episode[]> = data.episodes;
+  const seasons: Season[] = Object.keys(seasonsMap).map(key => {
+    const seasonNum = parseInt(key);
+    return {
+      name: `Temporada ${seasonNum}`,
+      number: seasonNum,
+      episodes: seasonsMap[seasonNum].map(ep => ({
+        id: ep.id,
+        title: ep.title,
+        container_extension: ep.container_extension || 'mp4',
+        season: ep.season,
+        episode_num: ep.episode_num
+      }))
+    };
+  });
+
+  return seasons.sort((a, b) => a.number - b.number);
+};
+
+export const fetchCategoryData = async (
+  account: XtreamAccount, 
+  type: 'live' | 'movie' | 'series',
   label: string
 ): Promise<Channel[]> => {
-  const result: Channel[] = [];
-  const len = items.length;
-  const chunkSize = 2000; // Processa 2000 itens por vez para manter a UI responsiva
+  const cacheKey = `${account.username}-${type}`;
+  if (dataCache[cacheKey]) return dataCache[cacheKey];
 
-  for (let i = 0; i < len; i += chunkSize) {
-    const chunk = items.slice(i, i + chunkSize);
+  const baseUrl = account.url.trim().replace(/\/$/, "");
+  const actions = { 
+    live: 'get_live_streams', 
+    movie: 'get_vod_streams', 
+    series: 'get_series' 
+  };
+  
+  const apiUrl = `${baseUrl}/player_api.php?username=${account.username}&password=${account.password}&action=${actions[type]}`;
+  
+  const rawItems = await extremeFetch(apiUrl);
+  if (!Array.isArray(rawItems)) return [];
+
+  const result: Channel[] = rawItems.map(item => {
+    const streamId = item.stream_id || item.series_id || item.id;
+    const extension = item.container_extension || 'mp4';
+    const logo = item.stream_icon || item.cover || item.series_info?.cover || '';
     
-    // Processamento rápido do pedaço
-    for (let j = 0; j < chunk.length; j++) {
-      const item = chunk[j];
-      const streamId = item.stream_id || item.series_id;
-      if (!streamId) continue;
-
-      let streamUrl = '';
-      if (type === 'live') {
-        streamUrl = `${baseUrl}/live/${auth.u}/${auth.p}/${streamId}.m3u8`;
-      } else if (type === 'movie') {
-        streamUrl = `${baseUrl}/movie/${auth.u}/${auth.p}/${streamId}.${item.container_extension || 'mp4'}`;
-      } else {
-        streamUrl = `${baseUrl}/series/${auth.u}/${auth.p}/${streamId}.mp4`; 
-      }
-
-      result.push({
-        id: `${type}-${streamId}`,
-        name: item.name || 'Sem nome',
-        logo: item.stream_icon || item.cover || '',
-        category: item.category_name || label,
-        url: streamUrl,
-        isFavorite: false,
-        description: `Streaming Premium - ${label}`,
-        streamId: String(streamId),
-        type: type
-      });
+    let streamUrl = '';
+    if (type === 'live') {
+      streamUrl = `${baseUrl}/live/${account.username}/${account.password}/${streamId}.m3u8`;
+    } else if (type === 'movie') {
+      streamUrl = `${baseUrl}/movie/${account.username}/${account.password}/${streamId}.${extension}`;
+    } else {
+      // Para séries, a URL de stream é construída dinamicamente por episódio no Player
+      streamUrl = ''; 
     }
 
-    // Pequena pausa para permitir que o navegador processe eventos de UI
-    if (i + chunkSize < len) {
-      await new Promise(resolve => setTimeout(resolve, 0));
-    }
-  }
+    return {
+      id: `${type}-${streamId}`,
+      name: item.name || item.title || 'Sem nome',
+      logo: logo,
+      category: item.category_name || label,
+      url: streamUrl,
+      isFavorite: false,
+      type: type,
+      description: item.plot || item.description || ''
+    };
+  }).filter(c => c.id && c.name);
+
+  dataCache[cacheKey] = result;
   return result;
-};
-
-export const fetchXtreamData = async (account: XtreamAccount): Promise<Channel[]> => {
-  let { url, username, password } = account;
-  
-  url = url.trim();
-  if (!url.startsWith('http')) url = 'http://' + url;
-  const baseUrl = url.endsWith('/') ? url.slice(0, -1) : url;
-  
-  const authParams = `username=${username}&password=${password}`;
-  const apiUrl = `${baseUrl}/player_api.php?${authParams}`;
-
-  try {
-    const authData = await extremeFetch(apiUrl);
-    
-    if (!authData || (authData.user_info && authData.user_info.auth === 0)) {
-      throw new Error('Credenciais recusadas pelo servidor.');
-    }
-
-    const endpoints = [
-      { action: 'get_live_streams', type: 'live' as const, label: 'Canais' },
-      { action: 'get_vod_streams', type: 'movie' as const, label: 'Filmes' },
-      { action: 'get_series', type: 'series' as const, label: 'Séries' }
-    ];
-
-    // Busca os dados (I/O) em paralelo
-    const fetchPromises = endpoints.map(ep => extremeFetch(`${apiUrl}&action=${ep.action}`));
-    const rawDataResults = await Promise.allSettled(fetchPromises);
-
-    let allChannels: Channel[] = [];
-
-    // Processa cada categoria de forma otimizada
-    for (let i = 0; i < rawDataResults.length; i++) {
-      const result = rawDataResults[i];
-      if (result.status === 'fulfilled' && Array.isArray(result.value)) {
-        const ep = endpoints[i];
-        const processed = await processInChunks(
-          result.value, 
-          ep.type, 
-          baseUrl, 
-          { u: username, p: password },
-          ep.label
-        );
-        allChannels = allChannels.concat(processed);
-      }
-    }
-
-    if (allChannels.length === 0) {
-      throw new Error('O painel conectou, mas nenhum conteúdo foi encontrado.');
-    }
-
-    // Ordenação rápida: apenas move quem tem logo para o topo, sem overhead excessivo
-    return allChannels.sort((a, b) => (b.logo ? 1 : -1));
-
-  } catch (error: any) {
-    throw new Error(error.message || "Erro de conexão com o servidor.");
-  }
 };

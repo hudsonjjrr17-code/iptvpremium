@@ -11,6 +11,21 @@ export interface Channel {
   type?: 'live' | 'movie' | 'series';
 }
 
+export interface Episode {
+  id: string;
+  title: string;
+  container_extension: string;
+  season: number;
+  episode_num: number;
+  info?: any;
+}
+
+export interface Season {
+  name: string;
+  number: number;
+  episodes: Episode[];
+}
+
 export interface XtreamAccount {
   url: string;
   username: string;
@@ -24,7 +39,7 @@ export interface Playlist {
   createdAt: string;
 }
 
-export type ViewType = 'dashboard' | 'live' | 'movies' | 'series' | 'favorites' | 'upload';
+export type ViewType = 'dashboard' | 'live' | 'movies' | 'series' | 'favorites';
 
 export interface AIRecommendation {
   reason: string;

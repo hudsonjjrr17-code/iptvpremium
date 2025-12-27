@@ -44,13 +44,8 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setView }) => {
       </nav>
 
       <div className="p-6">
-        <div className="bg-gradient-to-br from-zinc-900 to-black rounded-2xl p-4 border border-zinc-800">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-black text-red-500 uppercase tracking-widest">Sistema</span>
-            <div className="w-2 h-2 rounded-full bg-green-500 shadow-lg shadow-green-500/50" />
-          </div>
-          <p className="text-xs text-zinc-100 font-bold">Online & Seguro</p>
-          <p className="text-[10px] text-zinc-500 mt-1">Versão 3.0.4 Pro</p>
+        <div className="px-4 py-2 border-t border-zinc-900">
+           <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest text-center">Premium Experience</p>
         </div>
       </div>
     </aside>

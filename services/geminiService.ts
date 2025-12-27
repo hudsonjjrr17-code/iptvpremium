@@ -3,6 +3,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { Channel } from "../types";
 
 export const getAIRecommendations = async (channels: Channel[], userMood?: string) => {
+  // Use gemini-3-flash-preview for simple text tasks like summarization or recommendations
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const channelList = channels.map(c => `ID: ${c.id}, Name: ${c.name}, Category: ${c.category}`).join('\n');
@@ -44,8 +45,7 @@ export const getAIRecommendations = async (channels: Channel[], userMood?: strin
 };
 
 export const parseM3UWithAI = async (m3uContent: string) => {
-    // This is a complex task, usually we do basic regex, 
-    // but we can use AI to clean up messy names and categories.
+    // This is a complex parsing task, using gemini-3-pro-preview for better reasoning
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
     const prompt = `
@@ -58,7 +58,7 @@ export const parseM3UWithAI = async (m3uContent: string) => {
 
     try {
         const response = await ai.models.generateContent({
-            model: "gemini-3-flash-preview",
+            model: "gemini-3-pro-preview",
             contents: prompt,
             config: {
                 responseMimeType: "application/json",
